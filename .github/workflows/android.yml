@@ -1,0 +1,48 @@
+name: Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Android SDK and NDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;26.3.11579264"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/26.3.11579264" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.3.11579264" >> "$GITHUB_ENV"
+
+      - name: Install cargo-apk
+        run: cargo install cargo-apk --locked
+
+      - name: Create signing key
+        run: |
+          keytool -genkeypair -keystore "$RUNNER_TEMP/release.keystore" \
+            -alias wordcraft -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android -dname "CN=WordCraft"
+
+      - name: Build APK
+        env:
+          CARGO_APK_RELEASE_KEYSTORE: ${{ runner.temp }}/release.keystore
+          CARGO_APK_RELEASE_KEYSTORE_PASSWORD: android
+        run: cargo apk build --release --lib -p wordcraft-android
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: WordCraft-apk
+          path: target/release/apk/*.apk
+          if-no-files-found: error
